@@ -17,14 +17,14 @@ pub const vertexShaderImpl =
     \\ void main (void)
     \\ {   
     \\     // Define a rectangle such that we can draw a texture on it
-    \\     const vec4 vertices[] = vec4[](vec2(-0.5, -0.5),
-    \\                                    vec2(-0.5, -0.5),
-    \\                                    vec2(-0.5, -0.5),
-    \\                                    vec2(-0.5, -0.5));
+    \\     const vec2 position[] = vec2[4](vec2(-0.5, -0.5),
+    \\                                     vec2( 0.5, -0.5),
+    \\                                     vec2(-0.5,  0.5),
+    \\                                     vec2( 0.5,  0.5));
     \\
     \\     // I have no idea what happened to these code, I will take a research for it 
-    \\     vs_out.tc = (position[gl_VertexID].xy + vec2(offset, 0.5)) * vec2(30, 1.0);
-    \\     gl_Position = mvp * vec4(vertices[gl_VertexID], 0.0, 1.0);
+    \\     vs_out.tc = (position[gl_VertexID].xy + vec2(offset, 0.5)) * vec2(30.0, 1.0);
+    \\     gl_Position = mvp * vec4(position[gl_VertexID], 0.0, 1.0);
     \\ }
 ;
 

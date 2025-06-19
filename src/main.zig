@@ -1,6 +1,7 @@
 // These are the libraries used in the examples,
 // you may find the respostories from build.zig.zon
 const std = @import("std");
+const zm = @import("zm");
 const app = @import("sb7.zig");
 const ktx = @import("sb7ktx.zig");
 const shader = @import("shaders_tunnel.zig");
@@ -13,8 +14,8 @@ var tex_ceiling: app.gl.uint = undefined;
 var tex_floor: app.gl.uint = undefined;
 
 // There are too few variables, used individual var instead of a struct
-var uni_mvp: app.gl.uint = undefined;
-var uni_offset: app.gl.uint = undefined;
+var uni_mvp: app.gl.int = undefined;
+var uni_offset: app.gl.int = undefined;
 
 pub fn main() !void {
     // Many people seem to hate the dynamic loading part of the program.
@@ -75,7 +76,9 @@ fn startup() callconv(.c) void {
     app.gl.DeleteShader(vs);
     app.gl.DeleteShader(fs);
 
-    app.verifyProgram(program, &success, &infoLog);
+    app.verifyProgram(program, &success, &infoLog) catch {
+        return;
+    };
 
     // define uniforms. arrays and buffers:
     uni_mvp = app.gl.GetUniformLocation(program, "mvp");
@@ -89,15 +92,15 @@ fn startup() callconv(.c) void {
     var arena = std.heap.ArenaAllocator.init(page);
     defer arena.deinit();
 
-    _ = ktx.load(arena, "src/media/textures/brick.ktx", &tex_wall) catch |err| {
+    _ = ktx.load(arena.allocator(), "src/media/textures/brick.ktx", &tex_wall) catch |err| {
         std.debug.print("Wall Texture Load Failed: {any}", .{err});
     };
 
-    _ = ktx.load(arena, "src/media/textures/ceiling.ktx", &tex_ceiling) catch |err| {
+    _ = ktx.load(arena.allocator(), "src/media/textures/ceiling.ktx", &tex_ceiling) catch |err| {
         std.debug.print("Ceiling Texture Load Failed: {any}", .{err});
     };
 
-    _ = ktx.load(arena, "src/media/textures/floor.ktx", &tex_floor) catch |err| {
+    _ = ktx.load(arena.allocator(), "src/media/textures/floor.ktx", &tex_floor) catch |err| {
         std.debug.print("Floor Texture Load Failed: {any}", .{err});
     };
 
@@ -117,12 +120,51 @@ fn startup() callconv(.c) void {
     }
 }
 
-fn render(_: f64) callconv(.c) void {
-    const green: [4]app.gl.float = .{ 0.0, 0.25, 0.0, 1.0 };
-    app.gl.ClearBufferfv(app.gl.COLOR, 0, &green);
+fn render(current_time: f64) callconv(.c) void {
+    const black: [4]app.gl.float = .{ 0.0, 0.0, 0.0, 0.0 };
+    app.gl.Viewport(0, 0, app.info.windowWidth, app.info.windowHeight);
+    app.gl.ClearBufferfv(app.gl.COLOR, 0, &black);
 
     app.gl.UseProgram(program);
-    app.gl.DrawArrays(app.gl.TRIANGLES, 0, 3);
+
+    // This uniform is used for shifting the texture outwards such that to create a moving in illusion
+    app.gl.Uniform1f(uni_offset, @floatCast(current_time * 0.003));
+
+    // use a perspective matrix, and remember the array orientation difference between zm and opengl.
+    // This matrix is used for create the depth of the tunnel from a flat texture
+    const proj_matrix = zm.Mat4f.perspective(
+        std.math.degreesToRadians(60),
+        @as(f32, @floatFromInt(app.info.windowWidth)) / @as(f32, @floatFromInt(app.info.windowHeight)),
+        0.1,
+        100,
+    );
+
+    // construct the four texture that represent the floor, ceiling and the wall of two sides
+    const textures = [4]app.gl.uint{ tex_wall, tex_floor, tex_wall, tex_ceiling };
+
+    // The reason we can do a for loop is that all four textures share the same size and shape,
+    // but the rotation is different, so we can use the index to change the rotation of the texture
+    // instead of drawing them individually, thus the aforementioned textures array.
+    for (textures, 0..) |texture, i| {
+
+        // C++ vmath use degree mode, but zm use radian mode, thus the conversion
+        // Also, be aware of the type of the matrix. the Mat4 in glsl and vmath (f32 based) is
+        // different from the zig mat4 (f64 based). The type difference will not return any error,
+        // but the shader will simply return a black screen if the float type of a matrix
+        // is not the same.
+
+        const mv_pt1 = zm.Mat4f.rotation(zm.Vec3f{ 0, 0, 1 }, std.math.degreesToRadians(90) * @as(f32, @floatFromInt(i)));
+        const mv_pt2 = zm.Mat4f.translation(-0.5, 0.0, -10);
+        const mv_pt3 = zm.Mat4f.rotation(zm.Vec3{ 0, 1, 0 }, std.math.degreesToRadians(90));
+        const mv_pt4 = zm.Mat4f.scaling(30.0, 1.0, 1.0);
+        const mv_matrix = mv_pt1.multiply(mv_pt2).multiply(mv_pt3).multiply(mv_pt4);
+
+        const mvp = proj_matrix.multiply(mv_matrix);
+
+        app.gl.UniformMatrix4fv(uni_mvp, 1, app.gl.TRUE, @ptrCast(&mvp));
+        app.gl.BindTexture(app.gl.TEXTURE_2D, texture);
+        app.gl.DrawArrays(app.gl.TRIANGLE_STRIP, 0, 4);
+    }
 }
 
 fn shutdown() callconv(.c) void {

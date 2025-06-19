@@ -240,7 +240,6 @@ fn process2DTexture(header: *Header, data: []u8) void {
         );
 
         gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1);
-        var i: u32 = 0;
 
         var height = header.pixelheight;
         var width = header.pixelwidth;
@@ -250,14 +249,26 @@ fn process2DTexture(header: *Header, data: []u8) void {
         // I have to use a C pointer instead.
         var ptr = @as([*c]u8, @ptrCast(data.ptr));
 
+        var i: u32 = 0;
+
+        // This locates the pointers of the MipMap
+        // The KTX has stated the number of MipMap levels
+        // where they are reduced version of the original texture
+        // However, they are all stored in a stream of data.
+        // Without finding the corresponding texture starting location
+        // will fails to load the reduced texture such that a black
+        // texture remains when it is zoomed in or out.
+        // Thus, we need to calculate the size of each subtexture
+        // which is Stride by the framework standard, so that
+        // finding the correct starting point of textures in each level.
         while (i < header.miplevels) : (i += 1) {
             gl.TexSubImage2D(
                 gl.TEXTURE_2D,
                 @intCast(i),
                 0,
                 0,
-                @intCast(header.pixelwidth),
-                @intCast(header.pixelheight),
+                @intCast(width),
+                @intCast(height),
                 @intCast(header.glformat),
                 @intCast(header.gltype),
                 ptr,
